@@ -42,7 +42,7 @@ jobs:
           python3 -c "import json,sys; d=json.load(open('/tmp/raw-digest.json')); print('OK - builders:', len(d.get('x',[])), '| podcasts:', len(d.get('podcasts',[])))"
 
       - name: Install Python deps
-        run: pip install google-generativeai --quiet
+        run: pip install google-genai --quiet
 
       - name: Remix + render + send digest
         env:
