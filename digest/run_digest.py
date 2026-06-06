@@ -271,7 +271,10 @@ def send_email(html_body: str):
     msg.attach(MIMEText(html_body, "html"))
 
     print(f"Sending digest to {to_email}...")
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
         server.login(gmail_user, gmail_password)
         server.sendmail(gmail_user, to_email, msg.as_string())
     print("Email sent successfully.")
