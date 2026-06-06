@@ -15,7 +15,7 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-import anthropic
+import google.generativeai as genai
 
 RAW_JSON_PATH = "/tmp/raw-digest.json"
 TODAY = datetime.now().strftime("%B %d, %Y")
@@ -79,7 +79,11 @@ Return this exact JSON structure:
 """
 
 def remix_content(raw: dict) -> dict:
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    model = genai.GenerativeModel(
+        model_name="gemini-2.5-flash",
+        system_instruction=SYSTEM_PROMPT,
+    )
 
     # Trim content to avoid token overflow — cap at 30 builders
     builders = raw["builders"][:30]
@@ -99,15 +103,10 @@ Today's date: {TODAY}
 {REMIX_SCHEMA}
 """
 
-    print("Calling Anthropic API for remix...")
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}]
-    )
+    print("Calling Gemini API for remix...")
+    response = model.generate_content(user_content)
 
-    raw_text = response.content[0].text.strip()
+    raw_text = response.text.strip()
     # Strip markdown fences if model included them anyway
     if raw_text.startswith("```"):
         raw_text = raw_text.split("\n", 1)[1]
