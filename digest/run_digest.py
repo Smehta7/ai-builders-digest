@@ -2,7 +2,7 @@
 AI Builders Weekly Digest
 --------------------------
 1. Reads raw JSON from /tmp/raw-digest.json (output of prepare-digest.js)
-2. Calls Anthropic API to remix content into a structured digest
+2. Calls Gemini API (free tier) to remix content into a structured digest
 3. Renders a rich HTML email
 4. Sends via Gmail SMTP
 """
@@ -15,7 +15,7 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-import google.generativeai as genai
+from google import genai
 
 RAW_JSON_PATH = "/tmp/raw-digest.json"
 TODAY = datetime.now().strftime("%B %d, %Y")
@@ -29,19 +29,17 @@ def load_raw(path: str) -> dict:
         data = json.load(f)
     builders = data.get("x", [])
     podcasts = data.get("podcasts", [])
-    prompts  = data.get("prompts", {})
-    stats    = data.get("stats", {})
     if not builders and not podcasts:
         print("No content today — skipping.")
         sys.exit(0)
     print(f"Loaded {len(builders)} builders | {len(podcasts)} podcast(s)")
-    return {"builders": builders, "podcasts": podcasts, "prompts": prompts, "stats": stats}
+    return {"builders": builders, "podcasts": podcasts}
 
 
-# ── 2. Remix via Anthropic API ───────────────────────────────────────────────
+# ── 2. Remix via Gemini API (free tier) ─────────────────────────────────────
 
-SYSTEM_PROMPT = """You are a sharp, opinionated AI research editor who curates a weekly digest for a 
-senior data engineer and Databricks architect. Your reader is technical, busy, and values 
+SYSTEM_PROMPT = """You are a sharp, opinionated AI research editor who curates a weekly digest for a
+senior data engineer and Databricks architect. Your reader is technical, busy, and values
 original builder thinking over hype. Tone: direct, analytical, occasionally dry wit.
 
 Rules:
@@ -59,10 +57,10 @@ Return this exact JSON structure:
   "builders": [
     {
       "name": "...",
-      "role": "...",  // infer from bio field
-      "summary": "...",  // 2-3 sentences
-      "url": "...",  // most relevant tweet URL
-      "data_relevance": true/false  // true if relevant to data/AI infra
+      "role": "...",
+      "summary": "...",
+      "url": "...",
+      "data_relevance": true
     }
   ],
   "podcasts": [
@@ -79,13 +77,8 @@ Return this exact JSON structure:
 """
 
 def remix_content(raw: dict) -> dict:
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        system_instruction=SYSTEM_PROMPT,
-    )
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-    # Trim content to avoid token overflow — cap at 30 builders
     builders = raw["builders"][:30]
     podcasts = raw["podcasts"][:2]
 
@@ -104,10 +97,15 @@ Today's date: {TODAY}
 """
 
     print("Calling Gemini API for remix...")
-    response = model.generate_content(user_content)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=user_content,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+        ),
+    )
 
     raw_text = response.text.strip()
-    # Strip markdown fences if model included them anyway
     if raw_text.startswith("```"):
         raw_text = raw_text.split("\n", 1)[1]
         raw_text = raw_text.rsplit("```", 1)[0]
@@ -178,7 +176,6 @@ def render_html(digest: dict) -> str:
 </head>
 <body style="margin:0;padding:0;background:#0a0f1e;font-family:'Georgia',serif;">
 
-  <!-- Header -->
   <table width="100%" cellpadding="0" cellspacing="0">
     <tr>
       <td style="background:linear-gradient(135deg,#0a0f1e 0%,#0d1b2a 100%);
@@ -194,20 +191,17 @@ def render_html(digest: dict) -> str:
         <div style="font-size:13px;color:#8892a4;margin-top:8px;font-family:monospace;">
           {WEEK_LABEL} · {TODAY}
         </div>
-        <!-- Divider -->
         <div style="margin:28px auto 0;width:60px;height:2px;
                     background:linear-gradient(90deg,transparent,#64ffda,transparent);"></div>
       </td>
     </tr>
   </table>
 
-  <!-- Main content -->
   <table width="100%" cellpadding="0" cellspacing="0">
     <tr>
       <td style="padding:0 20px;">
         <div style="max-width:640px;margin:0 auto;">
 
-          <!-- Headline -->
           <div style="margin:36px 0 32px;padding:24px 28px;
                       background:#0d1b2a;border-radius:10px;
                       border:1px solid rgba(100,255,218,0.15);">
@@ -221,7 +215,6 @@ def render_html(digest: dict) -> str:
             </p>
           </div>
 
-          <!-- Editor's Pick -->
           <div style="margin-bottom:32px;padding:18px 22px;
                       background:rgba(100,255,218,0.05);
                       border:1px solid rgba(100,255,218,0.2);border-radius:8px;">
@@ -233,7 +226,6 @@ def render_html(digest: dict) -> str:
             <span style="color:#8892a4;font-size:14px;"> — {editors_note}</span>
           </div>
 
-          <!-- Builders Section -->
           <h2 style="font-family:monospace;font-size:11px;letter-spacing:0.2em;
                      color:#8892a4;text-transform:uppercase;font-weight:400;
                      border-bottom:1px solid #1a2640;padding-bottom:10px;margin-bottom:24px;">
@@ -241,7 +233,6 @@ def render_html(digest: dict) -> str:
           </h2>
           {builders_html}
 
-          <!-- Podcasts Section -->
           {"<h2 style='font-family:monospace;font-size:11px;letter-spacing:0.2em;color:#8892a4;text-transform:uppercase;font-weight:400;border-bottom:1px solid #1a2640;padding-bottom:10px;margin:36px 0 20px;'>Podcast Highlights</h2>" + podcasts_html if podcasts_html else ""}
 
         </div>
@@ -249,12 +240,11 @@ def render_html(digest: dict) -> str:
     </tr>
   </table>
 
-  <!-- Footer -->
   <table width="100%" cellpadding="0" cellspacing="0">
     <tr>
       <td style="padding:40px 20px;text-align:center;">
         <div style="font-family:monospace;font-size:11px;color:#3d4f6b;letter-spacing:0.05em;">
-          Powered by follow-builders · Delivered every Saturday · 
+          Powered by follow-builders · Delivered every Saturday ·
           <a href="https://github.com/zarazhangrui/follow-builders"
              style="color:#3d4f6b;text-decoration:underline;">source</a>
         </div>
