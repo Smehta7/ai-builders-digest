@@ -282,9 +282,14 @@ def send_email(html_body: str):
     )
 
     print(f"Sending digest to {to_email} via Resend...")
-    with urllib.request.urlopen(req) as resp:
-        result = json.loads(resp.read().decode())
-        print(f"Email sent successfully. ID: {result.get('id')}")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read().decode())
+            print(f"Email sent successfully. ID: {result.get('id')}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        print(f"Resend error {e.code}: {body}")
+        raise
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
