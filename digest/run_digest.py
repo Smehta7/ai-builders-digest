@@ -277,6 +277,7 @@ def send_email(html_body: str):
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "ai-builders-digest/1.0",
         },
         method="POST",
     )
