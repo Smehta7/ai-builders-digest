@@ -4,16 +4,14 @@ AI Builders Weekly Digest
 1. Reads raw JSON from /tmp/raw-digest.json (output of prepare-digest.js)
 2. Calls Gemini API (free tier) to remix content into a structured digest
 3. Renders a rich HTML email
-4. Sends via Gmail SMTP
+4. Sends via Resend API
 """
 
 import json
 import os
-import smtplib
+import urllib.request
 import sys
 from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 from google import genai
 
@@ -259,25 +257,34 @@ def render_html(digest: dict) -> str:
 # ── 4. Send via Gmail SMTP ───────────────────────────────────────────────────
 
 def send_email(html_body: str):
-    gmail_user     = os.environ["GMAIL_USER"]
-    gmail_password = os.environ["GMAIL_APP_PASSWORD"]
-    to_email       = os.environ["DIGEST_TO_EMAIL"]
+    api_key  = os.environ["RESEND_API_KEY"]
+    to_email = os.environ["DIGEST_TO_EMAIL"]
+    # FROM must be a verified domain on Resend.
+    # On the free tier, use Resend's shared domain: onboarding@resend.dev
+    # Once you verify your own domain, swap this to: digest@yourdomain.com
+    from_address = os.environ.get("RESEND_FROM", "AI Builders Digest <onboarding@resend.dev>")
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"🧠 AI Builders Digest — {TODAY}"
-    msg["From"]    = f"AI Builders Digest <{gmail_user}>"
-    msg["To"]      = to_email
+    payload = json.dumps({
+        "from": from_address,
+        "to": [to_email],
+        "subject": f"🧠 AI Builders Digest — {TODAY}",
+        "html": html_body,
+    }).encode("utf-8")
 
-    msg.attach(MIMEText(html_body, "html"))
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
 
-    print(f"Sending digest to {to_email}...")
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        server.login(gmail_user, gmail_password)
-        server.sendmail(gmail_user, to_email, msg.as_string())
-    print("Email sent successfully.")
+    print(f"Sending digest to {to_email} via Resend...")
+    with urllib.request.urlopen(req) as resp:
+        result = json.loads(resp.read().decode())
+        print(f"Email sent successfully. ID: {result.get('id')}")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
